@@ -1,0 +1,98 @@
+---
+title: "Practical Machine Learning Project"
+author: "David Disko"
+date: "April 23, 2015"
+output: html_document
+---
+
+Overview
+
+This project is based on previous work from Human Activity Recognition (HAR) reseach project where subjects were outfitted with various sensors and asked to perform dumbell lifts in a set manner.  These sensors recorded numerous parameters with the goal of being able to provide predictions for the manner that the exercise was performed correctly - type A and a manner of incorrect performance - types B through E. The provided data set has examples of the correct performance and incorrect performance.  This data is to be used as a training / verification set for a satistical model then a group of 20 unknown measurements were measured to see if they would match the expected movement type.  From readings in this area we would expect a model with a 3% to 5% error meaning that out of 20 unknowns we might expect 1 incorrect or vague prediction.
+
+Procedure
+
+We begin by loading the CSV data files into R and loading the required R libraries to the work space.  Once loaded we can examine the data to see if the large data set can be compacted so that the machine learning model can run efficently without sacrificing the quality of the model.  After the data is compacted and tested for zero variance the data will be partitioned for a training set and verification set.  The model produced from the trainig set will be run against the verification set to verify that the error rate is at an acceptable level.  Finally, the model is run against the set of 20 unknown data points to predict the type or class of exercise.
+
+Citation
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th Augmented Human (AH) International Conference in cooperation with ACM SIGCHI (Augmented Human'13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+Read more: http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201#ixzz3YBOF7cDZ
+
+Load Required Data and Libraries
+
+```{r, echo=TRUE}
+#Load data obtained from stated source
+traindata <-read.csv("pml-training.csv")
+testdata <-read.csv("pml-testing.csv")
+
+#Load required Libraries
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(pracma)
+
+#poll size of data set to ensure data loaded correctly
+dim(traindata)
+names(traindata)
+
+#Set Seed for repeatable results
+set.seed(555)
+```
+
+We can see that traindata has over 19,000 records with 160 variables with one of those variables "classe"" the target prediction - the type of exercise performed.  Examination of the other variables visually show that many are blank or very sparsely populated.  Reading the cited original paper the authors identifed numerous variables that are placeholders, targets for calculations using existing variables, time measures and subject names.  These can be dropped from the data set without impacting the model as we need to focus the model build on the raw data points that can predict the target.  Setting a seed allows for repeatable reults across multiple platforms and attempts.
+
+Data Processing
+
+```{r, echo=TRUE}
+#Compact data by dropping time data and label columns EXCEPT for classe, additionally there are 
+#numerous blank columns that can be removed as neither impact the model
+clean1traindata<-traindata[,-c(1:7,12:36,50:59,69:83,87:101,103:112,125:139,141:150)]
+
+#test data for near zero variance NZV in variables, NZV variables reported or all required
+nzvtest <- nearZeroVar(clean1traindata, saveMetrics = TRUE)
+if (any(nzvtest$nzvtest)) nzvtest else message("All variables required")
+
+#split data into two sets - 60% for training and 40% for verification
+mytrain <- createDataPartition(y=clean1traindata$classe, p=0.6, list =FALSE)
+trainset <- clean1traindata[mytrain,]
+verifyset <- clean1traindata[-mytrain,]
+names(clean1traindata)
+dim(trainset)
+dim(verifyset)
+
+```
+
+Once the extraneous variables are dropped from the set we can test the data for near zero variance or locate those items that vary little from one measurement to the next as these are candidates for elimination.  From the above test no variables met the test for near zero variance which leaves us 53 variables.  We then partition the training data set into to a split of 60% training and 40% for verification.   We see the reduced data set sizes and variable names for reference.
+
+Model Build and Test
+
+```{r, echo=TRUE}
+#build model using Random Forest and measure function time using tic toc
+tic()
+rfmodel <- train(trainset$classe ~ .,data = trainset, method = "rf")
+toc()
+
+#show model then run a Confusion Matrix on the verification set which is a subset 40% of the main data
+rfmodel
+predictset <- predict(rfmodel, verifyset)
+confusionMatrix(predictset,verifyset$classe)
+
+#run Variable Importance
+varImp(rfmodel)
+
+#run OOB error estimate
+rfmodel$finalModel
+```
+After examination of the data and type of prediction we need to make I narrowed the method to Random Forests as that would be the most likely candidate for a successful match.  Random Forest can be computationally intensive even with our reduced number of variables so to check the time required to run the Random Forest function I used tic-toc to gain an insight into that time - platform is a 2012 MacBook Air with 4GB RAM and a 1.8GHz i5 processor running 10.9.5.  Random Forests yielded a model with low error and high concordance when used against the verification set.  The Confusion Matrix of the verify set against the model shows an overall error of 1% with the highest class error when detecting class D.  Variable importance shows the top 20 variables contributing to the model.  It is interesting to note that many of the variables relate either to the belt sensors or the dumbbell sensors.  This agrees with the conclusions of the original authors.  Finally running an Out Of Bag test, OOB, shows a main error rate of 0.82%.
+
+```{r, echo=TRUE}
+#run model against testdata the pml test set to determine the exercise class
+finaltest <- predict(rfmodel, testdata)
+finaltest
+```
+
+Test Against Unknowns and Final Thoughts
+
+Using the PML test set with 20 unknown classes of type A to E we run the dervided RF model and produce an output which is graded by the submission tool showing 100% agreement.  Meaning that our model accurately predicts all unknown cases.  One of the cautions in our lectures on Machine Learning is overfitting models by tuning the model too closely to the training set as that may lead to excessive error when testing the model against a verification set or the target.  In our case the error was less than 1% and was lower than the expected error of 3% to 5% which warns us of a possible overfit.  If the model was truly an overfit then our 20 unknowns might be at risk for an incorrect prediction.   
